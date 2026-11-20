@@ -1,0 +1,21 @@
+{
+  "name": "P-Near by Parot",
+  "short_name": "P-Near",
+  "description": "End-to-End Encrypted Real-Time Location Sharing — Powered by Parot",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#090d16",
+  "theme_color": "#8b5cf6",
+  "icons": [
+    {
+      "src": "parot-logo.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "parot-logo.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

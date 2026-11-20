@@ -1,16 +1,18 @@
 /**
- * P-Near Geolocation & Trajectory Engine
- * - Single-gesture Safari/iOS-safe acquisition (starts with fast lock, upgrades seamlessly to High Accuracy GPS)
- * - Automatic adaptive fallback (GPS <-> WiFi/Cell) with periodic re-upgrade attempts
+ * P-Near Geolocation & Trajectory Engine (v3 - by Parot)
+ * - Single gesture-authorized watchPosition (never destroys & recreates watch asynchronously on Safari/iOS)
+ * - Active 3-second live polling fallback so mobile & desktop continuously stream coordinates
+ * - Seamless High-Accuracy <-> WiFi/CoreLocation fallback for laptops without throwing spurious errors
  * - Outlier/teleportation rejection, stationary jitter damping, bearing & ground-speed smoothing
  */
 (function (global) {
     'use strict';
 
     const GEO_CONFIG = {
-        FAST_INIT_OPTS: { enableHighAccuracy: false, maximumAge: 15000, timeout: 9000 },
-        HIGH_ACC_OPTS: { enableHighAccuracy: true, maximumAge: 1500, timeout: 15000 },
-        NETWORK_OPTS: { enableHighAccuracy: false, maximumAge: 5000, timeout: 15000 },
+        PRIMARY_WATCH_OPTS: { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 },
+        COARSE_WATCH_OPTS: { enableHighAccuracy: false, maximumAge: 10000, timeout: 15000 },
+        POLL_INTERVAL_MS: 3000,
+        POLL_STALE_THRESHOLD_MS: 3200,
         REUPGRADE_INTERVAL_MS: 45000,
         MAX_TELEPORT_SPEED_MS: 350, // ~1260 km/h safety cap
         FRESH_FIX_WINDOW_MS: 20000
@@ -75,19 +77,19 @@
 
         if (isIOS && isSafari) {
             browserName = 'iOS Safari';
-            steps = 'Open iOS Settings > Privacy & Security > Location Services (enable for Safari Websites -> Ask Next Time or While Using), or tap "aA" / puzzle icon in Safari address bar -> Website Settings -> Location: Allow.';
+            steps = 'Open iOS Settings > Privacy & Security > Location Services > Safari Websites -> "While Using the App", or tap "aA" in Safari address bar -> Website Settings -> Location: Allow.';
         } else if (isMac && isSafari) {
             browserName = 'macOS Safari';
-            steps = '1) Click Safari > Settings > Websites > Location -> Allow for this site. 2) Also verify System Settings > Privacy & Security > Location Services is enabled for Safari.';
+            steps = '1) Safari > Settings > Websites > Location -> Allow for near.parotcorp.com. 2) System Settings > Privacy & Security > Location Services -> Enable Safari.';
         } else if (isBrave) {
             browserName = 'Brave';
-            steps = 'Click the lock/location icon in the address bar -> Location: Allow. If blocked still persists, check Brave Settings > Privacy & Security > Site Settings > Location.';
+            steps = 'Click the lock/location icon in the address bar -> Location: Allow.';
         } else if (isFirefox) {
             browserName = 'Firefox';
-            steps = 'Click the lock/location icon on the left side of the address bar, clear the "Blocked" Location permission, and click Retry GPS.';
+            steps = 'Click the lock/location icon in the address bar, clear Blocked Location, and click Retry GPS.';
         } else if (isAndroid) {
             browserName = 'Android Browser';
-            steps = 'Tap the lock/tune icon next to the URL -> Permissions -> Location: Allow, and verify device GPS/Location quick tile is switched ON.';
+            steps = 'Tap the lock/tune icon next to the URL -> Permissions -> Location: Allow, and ensure phone GPS is turned ON.';
         } else {
             browserName = 'Browser';
         }
@@ -197,18 +199,20 @@
     }
 
     /**
-     * Manages lifecycle of browser geolocation watch with single-gesture start,
-     * adaptive high-accuracy upgrade, and periodic recovery probing.
+     * Single-Watch + Active 3-Second Live Poller.
+     * Never breaks iOS/macOS Safari user gesture by destroying/recreating watch after first fix.
      */
     class AdaptiveGeoTracker {
         constructor(callbacks) {
             this.callbacks = callbacks || {};
             this.watchId = null;
-            this.reupgradeTimer = null;
-            this.mode = 'idle'; // 'idle' | 'fast-init' | 'high' | 'network' | 'denied' | 'stopped'
+            this.pollTimer = null;
+            this.mode = 'idle'; // 'idle' | 'high' | 'network' | 'denied' | 'stopped'
             this.receivedFirstFix = false;
-            this.highAccTimeouts = 0;
-            this.highAccUnavailable = 0;
+            this.lastFixWallTime = 0;
+            this.highAccFailures = 0;
+            this.coarseFailures = 0;
+            this.pollInFlight = false;
             this.generation = 0;
         }
 
@@ -224,13 +228,14 @@
             this.stop();
             this.generation++;
             this.receivedFirstFix = false;
-            this.highAccTimeouts = 0;
-            this.highAccUnavailable = 0;
-            this.mode = 'fast-init';
+            this.lastFixWallTime = 0;
+            this.highAccFailures = 0;
+            this.coarseFailures = 0;
+            this.pollInFlight = false;
 
-            // Single geolocation call in synchronous gesture stack:
-            // Avoids iOS/macOS Safari double-prompt cancellation bug while returning laptops/WiFi in <1s.
-            this._startWatch(GEO_CONFIG.FAST_INIT_OPTS, 'fast-init');
+            // Keep ONE watchPosition directly from the click gesture (critical for Safari/iOS live updates)
+            this._startWatch(GEO_CONFIG.PRIMARY_WATCH_OPTS, 'high');
+            this._startActivePoller();
         }
 
         stop() {
@@ -239,10 +244,11 @@
                 navigator.geolocation.clearWatch(this.watchId);
                 this.watchId = null;
             }
-            if (this.reupgradeTimer) {
-                clearInterval(this.reupgradeTimer);
-                this.reupgradeTimer = null;
+            if (this.pollTimer) {
+                clearInterval(this.pollTimer);
+                this.pollTimer = null;
             }
+            this.pollInFlight = false;
             this.mode = 'stopped';
         }
 
@@ -261,17 +267,7 @@
             this.watchId = navigator.geolocation.watchPosition(
                 (pos) => {
                     if (gen !== this.generation) return;
-                    const wasFirst = !this.receivedFirstFix;
-                    this.receivedFirstFix = true;
-
-                    if (this.callbacks.onPosition) {
-                        this.callbacks.onPosition(pos, { mode: this.mode, isFirstFix: wasFirst });
-                    }
-
-                    // Upgrade immediately from fast-init to continuous high-accuracy GPS once permission is granted
-                    if (this.mode === 'fast-init') {
-                        this._startWatch(GEO_CONFIG.HIGH_ACC_OPTS, 'high');
-                    }
+                    this._deliverPosition(pos, this.mode);
                 },
                 (err) => {
                     if (gen !== this.generation) return;
@@ -279,6 +275,57 @@
                 },
                 options
             );
+        }
+
+        _deliverPosition(pos, sourceMode) {
+            const wasFirst = !this.receivedFirstFix;
+            this.receivedFirstFix = true;
+            this.lastFixWallTime = Date.now();
+            this.highAccFailures = 0;
+            this.coarseFailures = 0;
+
+            if (this.callbacks.onPosition) {
+                this.callbacks.onPosition(pos, { mode: sourceMode, isFirstFix: wasFirst });
+            }
+        }
+
+        _startActivePoller() {
+            if (this.pollTimer) clearInterval(this.pollTimer);
+            const gen = this.generation;
+
+            this.pollTimer = setInterval(() => {
+                if (gen !== this.generation || this.mode === 'stopped' || this.mode === 'denied') return;
+                if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+                // Wait until permission/first watch settles or stale >= 3.2s
+                if (!this.receivedFirstFix || this.pollInFlight) return;
+                if (Date.now() - this.lastFixWallTime < GEO_CONFIG.POLL_STALE_THRESHOLD_MS) return;
+
+                this.pollInFlight = true;
+                const opts = this.mode === 'network'
+                    ? { enableHighAccuracy: false, maximumAge: 5000, timeout: 9000 }
+                    : { enableHighAccuracy: true, maximumAge: 3000, timeout: 9000 };
+
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        this.pollInFlight = false;
+                        if (gen !== this.generation) return;
+                        this._deliverPosition(pos, this.mode);
+                    },
+                    (err) => {
+                        this.pollInFlight = false;
+                        if (gen !== this.generation) return;
+                        if (err && err.code === 1) {
+                            this._handleError(err);
+                        } else if (this.mode === 'high' && err && (err.code === 2 || err.code === 3)) {
+                            this.highAccFailures++;
+                            if (this.highAccFailures >= 3) {
+                                this._downgradeToNetwork();
+                            }
+                        }
+                    },
+                    opts
+                );
+            }, GEO_CONFIG.POLL_INTERVAL_MS);
         }
 
         _handleError(err) {
@@ -290,73 +337,44 @@
                 return;
             }
 
-            if (code === 3) { // TIMEOUT
-                if (this.mode === 'fast-init') {
-                    // Timed out getting coarse fix; switch straight to High-Accuracy watch
-                    this._startWatch(GEO_CONFIG.HIGH_ACC_OPTS, 'high');
+            if (code === 2 || code === 3) { // POSITION_UNAVAILABLE or TIMEOUT
+                if (this.mode === 'high') {
+                    this.highAccFailures++;
+                    // Quickly fall back to WiFi/CoreLocation on laptops without scary errors
+                    if (this.highAccFailures >= 1 && !this.receivedFirstFix) {
+                        this._downgradeToNetwork();
+                        return;
+                    }
+                    if (this.highAccFailures >= 3) {
+                        this._downgradeToNetwork();
+                        return;
+                    }
+                    if (!this.receivedFirstFix && this.callbacks.onStatus) {
+                        this.callbacks.onStatus('acquiring', 'Acquiring signal...');
+                    }
                     return;
                 }
-                if (this.mode === 'high') {
-                    this.highAccTimeouts++;
-                    if (this.highAccTimeouts >= 2) {
-                        this._downgradeToNetwork();
-                        return;
-                    }
-                }
-                if (this.callbacks.onStatus) {
-                    this.callbacks.onStatus('acquiring', 'Acquiring signal...');
+
+                // Already in network mode
+                this.coarseFailures++;
+                if (this.coarseFailures >= 3 && !this.receivedFirstFix) {
+                    this._emitError('unavailable', err);
+                } else if (!this.receivedFirstFix && this.callbacks.onStatus) {
+                    this.callbacks.onStatus('network', 'Using WiFi positioning...');
                 }
                 return;
             }
 
-            if (code === 2) { // POSITION_UNAVAILABLE
-                if (this.mode === 'high' || this.mode === 'fast-init') {
-                    this.highAccUnavailable++;
-                    if (this.mode === 'fast-init' || this.highAccUnavailable === 1) {
-                        this._downgradeToNetwork();
-                        return;
-                    }
-                }
-                this._emitError('unavailable', err);
-                return;
-            }
-
-            if (this.callbacks.onStatus) {
+            if (!this.receivedFirstFix && this.callbacks.onStatus) {
                 this.callbacks.onStatus('acquiring', 'Acquiring signal...');
             }
         }
 
         _downgradeToNetwork() {
-            this._startWatch(GEO_CONFIG.NETWORK_OPTS, 'network');
-            this._ensureReupgradeProbe();
-            if (this.callbacks.onStatus) {
-                this.callbacks.onStatus('network', 'Using WiFi/Cell positioning...');
+            this._startWatch(GEO_CONFIG.COARSE_WATCH_OPTS, 'network');
+            if (!this.receivedFirstFix && this.callbacks.onStatus) {
+                this.callbacks.onStatus('network', 'Using WiFi positioning...');
             }
-        }
-
-        _ensureReupgradeProbe() {
-            if (this.reupgradeTimer) return;
-            const gen = this.generation;
-            this.reupgradeTimer = setInterval(() => {
-                if (gen !== this.generation || this.mode !== 'network' || typeof navigator === 'undefined' || !navigator.geolocation) {
-                    return;
-                }
-                navigator.geolocation.getCurrentPosition(
-                    (pos) => {
-                        if (gen !== this.generation || this.mode !== 'network') return;
-                        if (this.callbacks.onPosition) {
-                            this.callbacks.onPosition(pos, { mode: 'high-probe', isFirstFix: !this.receivedFirstFix });
-                        }
-                        if (pos.coords && pos.coords.accuracy <= 65) {
-                            clearInterval(this.reupgradeTimer);
-                            this.reupgradeTimer = null;
-                            this._startWatch(GEO_CONFIG.HIGH_ACC_OPTS, 'high');
-                        }
-                    },
-                    () => { /* Keep silent in network mode if GPS remains indoors */ },
-                    { enableHighAccuracy: true, timeout: 8000, maximumAge: 2000 }
-                );
-            }, GEO_CONFIG.REUPGRADE_INTERVAL_MS);
         }
 
         _emitError(kind, rawErr) {

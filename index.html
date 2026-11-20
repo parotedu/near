@@ -18,23 +18,26 @@
             } catch (e) {}
         })();
     </script>
-    <title>P-Near - Temporary Live Location Sharing</title>
-    <meta name="description" content="Zero-backend, end-to-end encrypted real-time location sharing. Share temporary live tracking links with automatic P2P + Relay Mesh sync.">
-    <meta name="theme-color" content="#090d16">
+    <title>P-Near by Parot — Temporary Live Location Sharing</title>
+    <meta name="description" content="Zero-backend, end-to-end encrypted real-time location sharing by Parot. Share temporary live tracking links with automatic P2P + Relay Mesh sync.">
+    <meta name="theme-color" content="#8b5cf6">
     <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="P-Near">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta property="og:type" content="website">
-    <meta property="og:title" content="P-Near — Live Location Sharing">
-    <meta property="og:description" content="Open this end-to-end encrypted link to track real-time movement on a live map. Zero backend, no signup required.">
+    <meta property="og:title" content="P-Near by Parot — Live Location Sharing">
+    <meta property="og:description" content="Open this end-to-end encrypted link to track real-time movement on a live map. Powered by Parot.">
+    <link rel="manifest" href="manifest.webmanifest">
 
     <!-- Leaflet Map CSS (Local) -->
     <link rel="stylesheet" href="leaflet/leaflet.css">
 
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="style.css?v=2">
+    <link rel="stylesheet" href="style.css?v=3">
 
-    <!-- Favicon placeholder (SVG locator pin) -->
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%236366f1'%3E%3Cpath d='M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z'/%3E%3C/svg%3E">
+    <!-- Parot Official Brand Favicon -->
+    <link rel="icon" type="image/png" href="parot-logo.png">
+    <link rel="apple-touch-icon" href="parot-logo.png">
 </head>
 <body>
     <!-- Main App Wrapper -->
@@ -45,21 +48,40 @@
             <div id="map"></div>
         </div>
 
-        <!-- Dynamic Dark/Light Theme Toggle -->
-        <button id="theme-toggle" type="button" class="theme-btn" title="Toggle Theme" aria-label="Toggle color theme">
-            <i data-lucide="moon" class="dark-icon" aria-hidden="true"></i>
-            <i data-lucide="sun" class="light-icon" aria-hidden="true"></i>
-        </button>
+        <!-- Floating Top-Left Brand Pill (Visible on Map Views) -->
+        <a id="map-parot-badge" href="https://parotcorp.com" target="_blank" rel="noopener" class="parot-map-badge hidden" title="Powered by Parot">
+            <img src="parot-logo.png" alt="Parot Logo" width="20" height="20">
+            <span>P-Near <strong>by Parot</strong></span>
+        </a>
+
+        <!-- Top-Right Map & Theme Controls -->
+        <div class="top-right-controls">
+            <button id="btn-map-style" type="button" class="theme-btn map-style-btn hidden" title="Switch Map View (Streets / Satellite)" aria-label="Switch Map View">
+                <i data-lucide="layers" aria-hidden="true"></i>
+            </button>
+            <button id="theme-toggle" type="button" class="theme-btn" title="Toggle Theme" aria-label="Toggle color theme">
+                <i data-lucide="moon" class="dark-icon" aria-hidden="true"></i>
+                <i data-lucide="sun" class="light-icon" aria-hidden="true"></i>
+            </button>
+        </div>
 
         <!-- Dashboard View (Setup Sharing) -->
         <div id="dashboard-view" class="view-panel active">
             <div class="glass-card main-setup-card">
                 <div class="logo-area animate-fade-in">
-                    <div class="logo-icon">
-                        <i data-lucide="map-pin" class="pin-icon-animated" aria-hidden="true"></i>
+                    <div class="parot-brand-lockup">
+                        <div class="logo-icon">
+                            <img src="parot-logo.png" alt="Parot" class="parot-emblem">
+                            <span class="pin-badge" aria-hidden="true">
+                                <i data-lucide="map-pin"></i>
+                            </span>
+                        </div>
                     </div>
                     <h1>P-Near</h1>
-                    <p class="tagline">Zero-Backend, End-to-End Encrypted Live Location Sharing</p>
+                    <p class="tagline">End-to-End Encrypted Real-Time Location Sharing</p>
+                    <a href="https://parotcorp.com" target="_blank" rel="noopener" class="powered-by-pill">
+                        <span>Powered by <strong>Parot</strong></span>
+                    </a>
                 </div>
 
                 <div class="setup-form animate-slide-up">
@@ -326,8 +348,8 @@
     <script src="lucide.min.js"></script>
 
     <!-- P-Near Modules (Local Zero-Backend) -->
-    <script src="geo.js?v=2"></script>
-    <script src="sync.js?v=2"></script>
-    <script src="app.js?v=2"></script>
+    <script src="geo.js?v=3"></script>
+    <script src="sync.js?v=3"></script>
+    <script src="app.js?v=3"></script>
 </body>
 </html>

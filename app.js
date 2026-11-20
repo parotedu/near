@@ -9,24 +9,25 @@
     const Geo = window.PNearGeo;
     const Sync = window.PNearSync;
 
-    // Map Tile Configurations (Primary: Esri ArcGIS - Free, Watermark-Free, Automatic OSM Fallback)
+    // High-Detail Map Tile Configurations (Streets up to Zoom 19 + Esri Satellite Mode)
     const MAP_THEMES = {
-        dark: {
-            url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
-            attribution: '&copy; <a href="https://www.esri.com/">Esri</a>, HERE, Garmin, &copy; OpenStreetMap contributors'
-        },
-        light: {
-            url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
-            attribution: '&copy; <a href="https://www.esri.com/">Esri</a>, DeLorme, NAVTEQ, USGS, Intermap, iPC, NRCAN, Esri Japan, METI, Esri China (Hong Kong), Esri (Thailand)'
-        },
-        osmFallback: {
+        streets: {
             url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        },
+        streetsFallback: {
+            url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+            attribution: '&copy; <a href="https://www.esri.com/">Esri</a>, DeLorme, NAVTEQ, USGS, Intermap, iPC, NRCAN, Esri Japan'
+        },
+        satellite: {
+            url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            attribution: '&copy; <a href="https://www.esri.com/">Esri</a>, Maxar, Earthstar Geographics'
         }
     };
 
     const state = {
         theme: 'dark',
+        mapStyle: 'streets', // 'streets' | 'satellite'
         mode: 'dashboard', // 'dashboard' | 'sharing' | 'viewer'
         autoFollow: true,
         isDemoRunning: false,
@@ -76,6 +77,8 @@
 
     const el = {
         themeToggle: document.getElementById('theme-toggle'),
+        btnMapStyle: document.getElementById('btn-map-style'),
+        mapParotBadge: document.getElementById('map-parot-badge'),
         dashboardView: document.getElementById('dashboard-view'),
         sharingView: document.getElementById('sharing-view'),
         viewerView: document.getElementById('viewer-view'),
@@ -144,6 +147,10 @@
         setupEventListeners();
         setupStopDialog();
         routeApp();
+
+        if ('serviceWorker' in navigator && location.protocol === 'https:') {
+            navigator.serviceWorker.register('sw.js').catch(() => {});
+        }
 
         setInterval(updateCountdownTimers, 1000);
     });
@@ -300,14 +307,20 @@
             el.dashboardView.classList.remove('hidden');
             el.dashboardView.classList.add('active');
             el.mapContainer.classList.add('hidden');
+            if (el.btnMapStyle) el.btnMapStyle.classList.add('hidden');
+            if (el.mapParotBadge) el.mapParotBadge.classList.add('hidden');
         } else if (viewName === 'sharing') {
             el.sharingView.classList.remove('hidden');
             el.sharingView.classList.add('active');
             el.mapContainer.classList.remove('hidden');
+            if (el.btnMapStyle) el.btnMapStyle.classList.remove('hidden');
+            if (el.mapParotBadge) el.mapParotBadge.classList.remove('hidden');
         } else if (viewName === 'viewer') {
             el.viewerView.classList.remove('hidden');
             el.viewerView.classList.add('active');
             el.mapContainer.classList.remove('hidden');
+            if (el.btnMapStyle) el.btnMapStyle.classList.remove('hidden');
+            if (el.mapParotBadge) el.mapParotBadge.classList.remove('hidden');
         }
     }
 
@@ -315,6 +328,9 @@
 
     function setupEventListeners() {
         el.themeToggle.addEventListener('click', toggleTheme);
+        if (el.btnMapStyle) {
+            el.btnMapStyle.addEventListener('click', toggleMapStyle);
+        }
 
         el.durationButtons.forEach((btn) => {
             btn.addEventListener('click', () => {
@@ -920,8 +936,8 @@
             attributionControl: true
         }).setView([26.8206, 30.8025], 5);
 
-        attachTileLayer(state.theme);
-        state.map.zoomControl.setPosition('bottomright');
+        attachTileLayer();
+        state.map.zoomControl.setPosition('topright');
 
         state.map.on('dragstart', () => {
             if (state.autoFollow) {
@@ -931,13 +947,31 @@
         });
     }
 
-    function attachTileLayer(themeKey) {
+    function toggleMapStyle() {
+        state.mapStyle = state.mapStyle === 'streets' ? 'satellite' : 'streets';
+        state.usingOsmFallback = false;
+        if (el.btnMapStyle) {
+            el.btnMapStyle.classList.toggle('active', state.mapStyle === 'satellite');
+        }
+        attachTileLayer();
+        showToast(state.mapStyle === 'satellite' ? 'Satellite view enabled' : 'Detailed street view enabled', 'info');
+    }
+
+    function attachTileLayer() {
         if (!state.map) return;
         if (state.tileLayer) {
             state.map.removeLayer(state.tileLayer);
         }
 
-        const cfg = state.usingOsmFallback ? MAP_THEMES.osmFallback : (MAP_THEMES[themeKey] || MAP_THEMES.dark);
+        if (state.mapStyle === 'streets') {
+            el.mapContainer.classList.add('map-streets-mode');
+        } else {
+            el.mapContainer.classList.remove('map-streets-mode');
+        }
+
+        const cfg = state.mapStyle === 'satellite'
+            ? MAP_THEMES.satellite
+            : (state.usingOsmFallback ? MAP_THEMES.streetsFallback : MAP_THEMES.streets);
         let tileErrStreak = 0;
 
         state.tileLayer = L.tileLayer(cfg.url, {
@@ -951,10 +985,10 @@
 
         state.tileLayer.on('tileerror', () => {
             tileErrStreak++;
-            if (!state.usingOsmFallback && tileErrStreak >= 4) {
+            if (state.mapStyle === 'streets' && !state.usingOsmFallback && tileErrStreak >= 4) {
                 state.usingOsmFallback = true;
-                attachTileLayer(state.theme);
-                showToast('Switched to OpenStreetMap fallback tiles.', 'info');
+                attachTileLayer();
+                showToast('Switched to fallback street map tiles.', 'info');
             }
         });
 
