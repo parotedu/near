@@ -1421,6 +1421,12 @@ dialog::backdrop {
 }
 
 /* Responsive Overrides */
+@media (max-width: 960px) {
+    .top-card {
+        top: 72px;
+    }
+}
+
 @media (max-width: 576px) {
     .glass-card {
         padding: 24px 16px;
