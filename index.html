@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="color-scheme" content="light dark">
+    <script>
+        (function () {
+            try {
+                var saved = localStorage.getItem('pnear-theme');
+                if (saved === 'light' || saved === 'dark') {
+                    document.querySelector('meta[name="color-scheme"]').content = saved;
+                    document.documentElement.setAttribute('data-theme', saved);
+                } else {
+                    var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+                    document.documentElement.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
+                }
+            } catch (e) {}
+        })();
+    </script>
+    <title>P-Near - Temporary Live Location Sharing</title>
+    <meta name="description" content="Zero-backend, end-to-end encrypted real-time location sharing. Share temporary live tracking links with automatic P2P + Relay Mesh sync.">
+    <meta name="theme-color" content="#090d16">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="P-Near — Live Location Sharing">
+    <meta property="og:description" content="Open this end-to-end encrypted link to track real-time movement on a live map. Zero backend, no signup required.">
+
+    <!-- Leaflet Map CSS (Local) -->
+    <link rel="stylesheet" href="leaflet/leaflet.css">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="style.css?v=2">
+
+    <!-- Favicon placeholder (SVG locator pin) -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%236366f1'%3E%3Cpath d='M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z'/%3E%3C/svg%3E">
+</head>
+<body>
+    <!-- Main App Wrapper -->
+    <div id="app" class="app-container">
+
+        <!-- Live Map Background (Used for Viewer & Sharer views) -->
+        <div id="map-container" class="map-wrapper hidden">
+            <div id="map"></div>
+        </div>
+
+        <!-- Dynamic Dark/Light Theme Toggle -->
+        <button id="theme-toggle" type="button" class="theme-btn" title="Toggle Theme" aria-label="Toggle color theme">
+            <i data-lucide="moon" class="dark-icon" aria-hidden="true"></i>
+            <i data-lucide="sun" class="light-icon" aria-hidden="true"></i>
+        </button>
+
+        <!-- Dashboard View (Setup Sharing) -->
+        <div id="dashboard-view" class="view-panel active">
+            <div class="glass-card main-setup-card">
+                <div class="logo-area animate-fade-in">
+                    <div class="logo-icon">
+                        <i data-lucide="map-pin" class="pin-icon-animated" aria-hidden="true"></i>
+                    </div>
+                    <h1>P-Near</h1>
+                    <p class="tagline">Zero-Backend, End-to-End Encrypted Live Location Sharing</p>
+                </div>
+
+                <div class="setup-form animate-slide-up">
+                    <!-- Name Input -->
+                    <div class="form-group">
+                        <label for="sharer-name">
+                            <i data-lucide="user" class="label-icon" aria-hidden="true"></i>
+                            Your Display Name
+                        </label>
+                        <input type="text" id="sharer-name" placeholder="Anonymous Friend" maxlength="24" autocomplete="name">
+                    </div>
+
+                    <!-- Duration Selection -->
+                    <div class="form-group">
+                        <label>
+                            <i data-lucide="clock" class="label-icon" aria-hidden="true"></i>
+                            Sharing Duration
+                        </label>
+                        <div class="duration-grid">
+                            <button type="button" class="duration-btn" data-minutes="15">
+                                <span class="val">15</span>
+                                <span class="unit">Mins</span>
+                            </button>
+                            <button type="button" class="duration-btn active" data-minutes="60">
+                                <span class="val">1</span>
+                                <span class="unit">Hour</span>
+                            </button>
+                            <button type="button" class="duration-btn" data-minutes="240">
+                                <span class="val">4</span>
+                                <span class="unit">Hours</span>
+                            </button>
+                            <button type="button" class="duration-btn" data-minutes="480">
+                                <span class="val">8</span>
+                                <span class="unit">Hours</span>
+                            </button>
+                            <button type="button" class="duration-btn" data-minutes="1440">
+                                <span class="val">24</span>
+                                <span class="unit">Hours</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Start Button -->
+                    <button id="btn-start-share" type="button" class="btn-primary">
+                        <i data-lucide="share-2" aria-hidden="true"></i>
+                        <span>Start Sharing Location</span>
+                    </button>
+                </div>
+
+                <!-- Feature Badges -->
+                <div class="features-row animate-fade-in">
+                    <div class="feature-item">
+                        <i data-lucide="shield-check" class="icon-green" aria-hidden="true"></i>
+                        <span>AES-256 Encrypted</span>
+                    </div>
+                    <div class="feature-item">
+                        <i data-lucide="radio" class="icon-blue" aria-hidden="true"></i>
+                        <span>Hybrid P2P + Mesh</span>
+                    </div>
+                    <div class="feature-item">
+                        <i data-lucide="server-off" class="icon-red" aria-hidden="true"></i>
+                        <span>Zero Backend</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sharing Control Panel (Active Share Status) -->
+        <div id="sharing-view" class="view-panel hidden">
+            <div id="sharing-card" class="glass-card floating-card bottom-card">
+                <div class="card-header">
+                    <div class="status-indicator">
+                        <span id="sharer-pulse" class="pulse-dot red"></span>
+                        <span class="status-text font-bold">Sharing Location Live</span>
+                    </div>
+                    <div class="header-right-controls">
+                        <div id="sharing-timer" class="countdown-badge">--:--</div>
+                        <button id="btn-toggle-share-panel" type="button" class="btn-mini-icon" title="Minimize or expand panel" aria-label="Toggle sharing panel">
+                            <i data-lucide="chevron-down" aria-hidden="true"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div id="sharing-body" class="sharing-details">
+                    <!-- GPS Recovery Banner (Shown only when GPS needs user gesture, permission, or troubleshooting) -->
+                    <div id="gps-recovery-box" class="recovery-banner hidden" role="region" aria-live="polite">
+                        <div class="recovery-header">
+                            <i data-lucide="alert-triangle" class="recovery-icon" aria-hidden="true"></i>
+                            <div class="recovery-text">
+                                <strong id="gps-recovery-title">GPS Access Needed</strong>
+                                <p id="gps-recovery-hint">Tap Enable GPS below to grant browser location permission.</p>
+                            </div>
+                        </div>
+                        <div class="recovery-actions">
+                            <button id="btn-retry-gps" type="button" class="btn-retry">
+                                <i data-lucide="locate-fixed" aria-hidden="true"></i>
+                                <span>Retry / Enable GPS</span>
+                            </button>
+                            <button id="btn-demo-location" type="button" class="btn-demo">
+                                <i data-lucide="play-circle" aria-hidden="true"></i>
+                                <span>Simulate Route</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Share Link Block -->
+                    <div class="share-link-box">
+                        <label for="share-url">Encrypted tracking link (key stays in URL #):</label>
+                        <div class="input-copy-group">
+                            <input type="text" id="share-url" readonly value="" placeholder="Generating link..." aria-label="Encrypted tracking URL">
+                            <span class="copy-wrapper">
+                                <button id="btn-copy-link" type="button" class="btn-icon" title="Copy Link" aria-label="Copy sharing link">
+                                    <i data-lucide="copy" class="copy-default" aria-hidden="true"></i>
+                                    <i data-lucide="check" class="copy-success hidden" aria-hidden="true"></i>
+                                </button>
+                                <span id="copy-status-tip" class="copy-tip" role="status"></span>
+                            </span>
+                            <button id="btn-share-api" type="button" class="btn-icon" title="Share Link" aria-label="Share link">
+                                <i data-lucide="send" aria-hidden="true"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Live Stats Dashboard -->
+                    <div class="stats-row stats-4">
+                        <div class="stat-card">
+                            <span class="stat-label">GPS Signal</span>
+                            <span id="stat-accuracy" class="stat-val">--</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="stat-label">Speed</span>
+                            <span id="stat-speed" class="stat-val">--</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="stat-label">Traveled</span>
+                            <span id="stat-distance" class="stat-val">0 m</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="stat-label">Broadcasts</span>
+                            <span id="stat-packets" class="stat-val">0</span>
+                        </div>
+                    </div>
+
+                    <!-- Network Status -->
+                    <div class="network-badge">
+                        <span id="wifi-icon-wrap" class="status-icon green"><i data-lucide="wifi" aria-hidden="true"></i></span>
+                        <span id="network-status-text" class="network-status-label">Initializing hybrid P2P + Relay Mesh...</span>
+                        <button id="btn-center-sharer" type="button" class="btn-badge-action" title="Center map on my location" aria-label="Center map on my location">
+                            <i data-lucide="crosshair" aria-hidden="true"></i>
+                        </button>
+                    </div>
+
+                    <!-- Action Controls -->
+                    <div class="actions-row">
+                        <button id="btn-stop-share" type="button" class="btn-danger">
+                            <i data-lucide="square" aria-hidden="true"></i>
+                            <span>Stop Sharing</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Viewer Panel (Viewing Someone Else's Location) -->
+        <div id="viewer-view" class="view-panel hidden">
+            <!-- Top Nav Info Bar -->
+            <div class="glass-card floating-card top-card">
+                <div class="viewer-header">
+                    <div class="viewer-user">
+                        <i data-lucide="user" class="user-avatar-icon" aria-hidden="true"></i>
+                        <div>
+                            <h2 id="viewer-sharer-name">Connecting...</h2>
+                            <p class="sub-status">
+                                <span class="pulse-dot green" id="viewer-pulse"></span>
+                                <span id="viewer-status-text">Syncing hybrid channels...</span>
+                            </p>
+                        </div>
+                    </div>
+                    <div class="viewer-timer-block">
+                        <span class="time-label">Expires in</span>
+                        <span id="viewer-timer" class="time-val">--:--</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bottom Control Overlay -->
+            <div id="viewer-card" class="glass-card floating-card bottom-card">
+                <div class="viewer-card-top">
+                    <span id="viewer-accuracy-pill" class="precision-pill">Waiting for GPS...</span>
+                    <button id="btn-toggle-viewer-panel" type="button" class="btn-mini-icon" title="Minimize or expand controls" aria-label="Toggle viewer controls">
+                        <i data-lucide="chevron-down" aria-hidden="true"></i>
+                    </button>
+                </div>
+                <div id="viewer-body" class="viewer-stats">
+                    <div class="stats-row stats-4">
+                        <div class="stat-card">
+                            <span class="stat-label">Speed</span>
+                            <span id="view-stat-speed" class="stat-val">--</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="stat-label">To You</span>
+                            <span id="view-stat-distance" class="stat-val">--</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="stat-label">Trip</span>
+                            <span id="view-stat-trip" class="stat-val">0 m</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="stat-label">Last Ping</span>
+                            <span id="view-stat-ping" class="stat-val">--</span>
+                        </div>
+                    </div>
+
+                    <div class="actions-row grid-2">
+                        <button id="btn-directions" type="button" class="btn-secondary">
+                            <i data-lucide="navigation" aria-hidden="true"></i>
+                            <span>Directions</span>
+                        </button>
+                        <button id="btn-recenter" type="button" class="btn-primary">
+                            <i data-lucide="target" aria-hidden="true"></i>
+                            <span id="recenter-label">Following Live</span>
+                        </button>
+                    </div>
+
+                    <!-- Viewer Personal Tracking Button -->
+                    <button id="btn-toggle-my-location" type="button" class="btn-outline-text text-sm">
+                        <i data-lucide="navigation-2" aria-hidden="true"></i>
+                        <span>Show my location to measure distance</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stop Sharing Confirmation Modal (Native accessible dialog) -->
+        <dialog id="stop-share-dialog" aria-labelledby="stop-dialog-title">
+            <h2 id="stop-dialog-title" class="dialog-title">Stop sharing your location?</h2>
+            <p class="dialog-desc">Viewers will immediately stop receiving updates and this sharing link will expire permanently.</p>
+            <form method="dialog" class="dialog-actions">
+                <button type="submit" value="cancel" class="btn-secondary" autofocus>Keep Sharing</button>
+                <button type="submit" value="stop" class="btn-danger">Stop Sharing</button>
+            </form>
+        </dialog>
+
+        <!-- Notifications Toast System -->
+        <div id="toast-container" class="toast-wrapper" role="region" aria-label="Notifications" aria-live="polite"></div>
+
+        <!-- Global Loader Overlay -->
+        <div id="global-loader" class="loader-overlay hidden">
+            <div class="spinner"></div>
+            <p id="loader-text">Loading map and establishing connections...</p>
+        </div>
+    </div>
+
+    <!-- Leaflet Map JS (Local) -->
+    <script src="leaflet/leaflet.js"></script>
+
+    <!-- CryptoJS (AES-256 + SHA-256 - Local) -->
+    <script src="crypto-js.min.js"></script>
+
+    <!-- PeerJS (WebRTC P2P Engine - Local) -->
+    <script src="peerjs.min.js"></script>
+
+    <!-- Lucide Icons (Local) -->
+    <script src="lucide.min.js"></script>
+
+    <!-- P-Near Modules (Local Zero-Backend) -->
+    <script src="geo.js?v=2"></script>
+    <script src="sync.js?v=2"></script>
+    <script src="app.js?v=2"></script>
+</body>
+</html>
