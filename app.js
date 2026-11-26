@@ -40,6 +40,7 @@
 
         // Sharer Active Session
         activeShare: null, // { cID, key, name, exp, duration }
+        statusNote: '',
         packetCount: 0,
         lastCoords: null,
         coordsHistory: [],
@@ -52,6 +53,7 @@
             cID: null,
             key: null,
             sharerName: 'Someone',
+            statusNote: '',
             exp: null,
             coords: null,
             tripDistanceMeters: 0,
@@ -72,6 +74,7 @@
         sharerAccuracyCircle: null,
         viewerMarker: null,
         breadcrumbsPolyline: null,
+        connectLine: null,
         markerAnimations: {}
     };
 
@@ -93,7 +96,9 @@
         sharingCard: document.getElementById('sharing-card'),
         sharerPulse: document.getElementById('sharer-pulse'),
         sharingTimer: document.getElementById('sharing-timer'),
+        btnExtend15: document.getElementById('btn-extend-15'),
         btnToggleSharePanel: document.getElementById('btn-toggle-share-panel'),
+        statusChips: document.querySelectorAll('.status-chip'),
         gpsRecoveryBox: document.getElementById('gps-recovery-box'),
         gpsRecoveryTitle: document.getElementById('gps-recovery-title'),
         gpsRecoveryHint: document.getElementById('gps-recovery-hint'),
@@ -109,6 +114,7 @@
         statPackets: document.getElementById('stat-packets'),
         wifiIconWrap: document.getElementById('wifi-icon-wrap'),
         networkStatusText: document.getElementById('network-status-text'),
+        btnRefreshGps: document.getElementById('btn-refresh-gps'),
         btnCenterSharer: document.getElementById('btn-center-sharer'),
         btnStopShare: document.getElementById('btn-stop-share'),
 
@@ -118,7 +124,9 @@
         viewerTimer: document.getElementById('viewer-timer'),
         viewerStatusText: document.getElementById('viewer-status-text'),
         viewerPulse: document.getElementById('viewer-pulse'),
+        viewerNoteBadge: document.getElementById('viewer-note-badge'),
         viewerAccuracyPill: document.getElementById('viewer-accuracy-pill'),
+        btnFitRoute: document.getElementById('btn-fit-route'),
         btnToggleViewerPanel: document.getElementById('btn-toggle-viewer-panel'),
         viewStatSpeed: document.getElementById('view-stat-speed'),
         viewStatDistance: document.getElementById('view-stat-distance'),
@@ -345,7 +353,21 @@
         el.btnCopyLink.addEventListener('click', copyShareLink);
         el.btnShareApi.addEventListener('click', shareViaApi);
         el.btnStopShare.addEventListener('click', openStopConfirmDialog);
+        if (el.btnExtend15) el.btnExtend15.addEventListener('click', () => extendSessionMinutes(15));
+        if (el.btnRefreshGps) el.btnRefreshGps.addEventListener('click', handleForceRefreshGps);
         el.btnCenterSharer.addEventListener('click', recenterMapOnSharer);
+
+        el.statusChips.forEach((chip) => {
+            chip.addEventListener('click', () => {
+                const note = chip.getAttribute('data-note') || '';
+                const isAlreadyActive = chip.classList.contains('active');
+                el.statusChips.forEach(c => c.classList.remove('active'));
+                state.statusNote = isAlreadyActive ? '' : note;
+                if (!isAlreadyActive) chip.classList.add('active');
+                broadcastStatusOrSnapshot();
+                showToast(state.statusNote ? `Status updated: "${state.statusNote}"` : 'Status cleared', 'info');
+            });
+        });
 
         el.btnToggleSharePanel.addEventListener('click', () => {
             el.sharingCard.classList.toggle('collapsed');
@@ -354,6 +376,7 @@
             el.viewerCard.classList.toggle('collapsed');
         });
 
+        if (el.btnFitRoute) el.btnFitRoute.addEventListener('click', fitBothMarkers);
         el.btnRecenter.addEventListener('click', recenterMapOnSharer);
         el.btnDirections.addEventListener('click', openDirections);
         el.btnToggleMyLocation.addEventListener('click', toggleViewerLocation);
@@ -650,6 +673,7 @@
         sync.broadcastSharerPacket({
             type: 'init',
             name: state.activeShare.name,
+            note: state.statusNote,
             exp: state.activeShare.exp,
             coords: state.lastCoords,
             dist: Math.round(state.totalDistanceMeters),
@@ -659,12 +683,53 @@
         startSharerHeartbeat();
     }
 
+    function handleForceRefreshGps() {
+        if (state.geoTracker) {
+            state.geoTracker.forceRefresh();
+            showToast('Requesting fresh GPS reading...', 'info');
+        }
+    }
+
+    function extendSessionMinutes(mins) {
+        if (!state.activeShare || state.mode !== 'sharing') return;
+        state.activeShare.exp = Math.max(Date.now(), state.activeShare.exp) + (mins * 60 * 1000);
+        try {
+            localStorage.setItem('pnear-active-share', JSON.stringify({
+                ...state.activeShare,
+                dist: Math.round(state.totalDistanceMeters),
+                history: state.coordsHistory.slice(-60)
+            }));
+        } catch { /* ignore */ }
+        el.sharingTimer.innerText = formatCountdown(state.activeShare.exp - Date.now());
+        broadcastStatusOrSnapshot();
+        showToast(`Session extended by +${mins} minutes!`, 'success');
+    }
+
+    function broadcastStatusOrSnapshot() {
+        if (!state.activeShare || !state.sync) return;
+        const packet = {
+            type: state.lastCoords ? 'update' : 'init',
+            name: state.activeShare.name,
+            note: state.statusNote,
+            exp: state.activeShare.exp,
+            coords: state.lastCoords,
+            dist: Math.round(state.totalDistanceMeters),
+            history: state.coordsHistory.slice(-60)
+        };
+        const res = state.sync.broadcastSharerPacket(packet, { forceSnapshot: true });
+        if (res.webrtcSent > 0 || res.relaySent > 0) {
+            state.packetCount++;
+            el.statPackets.innerText = state.packetCount;
+        }
+    }
+
     function broadcastFullLocationUpdate(coords, forceSnapshot) {
         if (!state.activeShare || !state.sync) return;
 
         const packet = {
             type: 'update',
             name: state.activeShare.name,
+            note: state.statusNote,
             exp: state.activeShare.exp,
             coords,
             dist: Math.round(state.totalDistanceMeters),
@@ -830,6 +895,15 @@
         if (packet.name) {
             state.viewer.sharerName = packet.name;
             el.viewerSharerName.innerText = packet.name;
+        }
+        if (typeof packet.note === 'string' && el.viewerNoteBadge) {
+            state.viewer.statusNote = packet.note;
+            if (packet.note.trim()) {
+                el.viewerNoteBadge.innerText = packet.note.trim();
+                el.viewerNoteBadge.classList.remove('hidden');
+            } else {
+                el.viewerNoteBadge.classList.add('hidden');
+            }
         }
         if (packet.exp) {
             state.viewer.exp = packet.exp;
@@ -1135,7 +1209,7 @@
         Object.values(state.markerAnimations).forEach((id) => cancelAnimationFrame(id));
         state.markerAnimations = {};
         if (state.map) {
-            [state.sharerMarker, state.sharerAccuracyCircle, state.viewerMarker, state.breadcrumbsPolyline].forEach((layer) => {
+            [state.sharerMarker, state.sharerAccuracyCircle, state.viewerMarker, state.breadcrumbsPolyline, state.connectLine].forEach((layer) => {
                 if (layer) state.map.removeLayer(layer);
             });
         }
@@ -1143,6 +1217,9 @@
         state.sharerAccuracyCircle = null;
         state.viewerMarker = null;
         state.breadcrumbsPolyline = null;
+        state.connectLine = null;
+        state.statusNote = '';
+        el.statusChips.forEach(c => c.classList.remove('active'));
         state.coordsHistory = [];
         state.viewer.history = [];
     }
@@ -1183,6 +1260,11 @@
                 state.map.removeLayer(state.viewerMarker);
                 state.viewerMarker = null;
             }
+            if (state.connectLine && state.map) {
+                state.map.removeLayer(state.connectLine);
+                state.connectLine = null;
+            }
+            if (el.btnFitRoute) el.btnFitRoute.classList.add('hidden');
             el.btnToggleMyLocation.querySelector('span').innerText = 'Show my location to measure distance';
             el.viewStatDistance.innerText = '--';
             showToast('Hidden your own location.', 'info');
@@ -1238,10 +1320,48 @@
     function updateDistanceUI() {
         if (state.viewer.coords && state.viewer.myCoords) {
             const meters = Geo.calculateHaversineMeters(state.viewer.coords, state.viewer.myCoords);
-            el.viewStatDistance.innerText = Geo.formatDistance(meters);
+            const deg = Geo.calculateBearingDeg(state.viewer.myCoords, state.viewer.coords);
+            const cardinal = Geo.bearingToCardinal(deg);
+            el.viewStatDistance.innerText = cardinal ? `${Geo.formatDistance(meters)} · ${cardinal}` : Geo.formatDistance(meters);
+
+            if (el.btnFitRoute) el.btnFitRoute.classList.remove('hidden');
+
+            if (state.map) {
+                const pts = [
+                    [state.viewer.myCoords.lat, state.viewer.myCoords.lng],
+                    [state.viewer.coords.lat, state.viewer.coords.lng]
+                ];
+                if (!state.connectLine) {
+                    state.connectLine = L.polyline(pts, {
+                        color: '#ec4899',
+                        weight: 2.5,
+                        opacity: 0.75,
+                        dashArray: '5, 7',
+                        interactive: false
+                    }).addTo(state.map);
+                } else {
+                    state.connectLine.setLatLngs(pts);
+                }
+            }
         } else {
             el.viewStatDistance.innerText = '--';
+            if (el.btnFitRoute) el.btnFitRoute.classList.add('hidden');
+            if (state.connectLine && state.map) {
+                state.map.removeLayer(state.connectLine);
+                state.connectLine = null;
+            }
         }
+    }
+
+    function fitBothMarkers() {
+        if (!state.map || !state.viewer.coords || !state.viewer.myCoords) return;
+        state.autoFollow = false;
+        updateFollowButtonUI();
+        const bounds = L.latLngBounds([
+            [state.viewer.myCoords.lat, state.viewer.myCoords.lng],
+            [state.viewer.coords.lat, state.viewer.coords.lng]
+        ]);
+        state.map.fitBounds(bounds, { padding: [90, 90], maxZoom: 16, animate: true });
     }
 
     function openDirections() {

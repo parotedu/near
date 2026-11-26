@@ -9,11 +9,11 @@
     'use strict';
 
     const GEO_CONFIG = {
-        PRIMARY_WATCH_OPTS: { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 },
-        COARSE_WATCH_OPTS: { enableHighAccuracy: false, maximumAge: 10000, timeout: 15000 },
+        PRIMARY_WATCH_OPTS: { enableHighAccuracy: true, maximumAge: 4000, timeout: 8500 },
+        COARSE_WATCH_OPTS: { enableHighAccuracy: false, maximumAge: 10000, timeout: 12000 },
         POLL_INTERVAL_MS: 3000,
         POLL_STALE_THRESHOLD_MS: 3200,
-        REUPGRADE_INTERVAL_MS: 45000,
+        REUPGRADE_INTERVAL_MS: 25000,
         MAX_TELEPORT_SPEED_MS: 350, // ~1260 km/h safety cap
         FRESH_FIX_WINDOW_MS: 20000
     };
@@ -53,6 +53,12 @@
         const y = Math.sin(dLng) * Math.cos(lat2);
         const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
         return (toDeg(Math.atan2(y, x)) + 360) % 360;
+    }
+
+    function bearingToCardinal(deg) {
+        if (!Number.isFinite(deg)) return '';
+        const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+        return dirs[Math.round(((deg % 360) / 45)) % 8];
     }
 
     function getAccuracyQuality(meters) {
@@ -248,8 +254,25 @@
                 clearInterval(this.pollTimer);
                 this.pollTimer = null;
             }
+            if (this.reupgradeTimer) {
+                clearInterval(this.reupgradeTimer);
+                this.reupgradeTimer = null;
+            }
             this.pollInFlight = false;
             this.mode = 'stopped';
+        }
+
+        forceRefresh() {
+            if (typeof navigator === 'undefined' || !navigator.geolocation || this.mode === 'stopped') return;
+            const gen = this.generation;
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    if (gen !== this.generation) return;
+                    this._deliverPosition(pos, this.mode);
+                },
+                () => { /* fallback silently to active watch/poll */ },
+                { enableHighAccuracy: this.mode !== 'network', maximumAge: 0, timeout: 8000 }
+            );
         }
 
         _startWatch(options, targetMode) {
@@ -372,9 +395,33 @@
 
         _downgradeToNetwork() {
             this._startWatch(GEO_CONFIG.COARSE_WATCH_OPTS, 'network');
+            this._ensureReupgradeProbe();
             if (!this.receivedFirstFix && this.callbacks.onStatus) {
                 this.callbacks.onStatus('network', 'Using WiFi positioning...');
             }
+        }
+
+        _ensureReupgradeProbe() {
+            if (this.reupgradeTimer) return;
+            const gen = this.generation;
+            this.reupgradeTimer = setInterval(() => {
+                if (gen !== this.generation || this.mode !== 'network' || typeof navigator === 'undefined' || !navigator.geolocation) {
+                    return;
+                }
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        if (gen !== this.generation || this.mode !== 'network') return;
+                        this._deliverPosition(pos, 'high-probe');
+                        if (pos.coords && pos.coords.accuracy <= 40) {
+                            clearInterval(this.reupgradeTimer);
+                            this.reupgradeTimer = null;
+                            this._startWatch(GEO_CONFIG.PRIMARY_WATCH_OPTS, 'high');
+                        }
+                    },
+                    () => {},
+                    { enableHighAccuracy: true, timeout: 6000, maximumAge: 2000 }
+                );
+            }, GEO_CONFIG.REUPGRADE_INTERVAL_MS);
         }
 
         _emitError(kind, rawErr) {
@@ -389,6 +436,7 @@
         calculateHaversineMeters,
         formatDistance,
         calculateBearingDeg,
+        bearingToCardinal,
         getAccuracyQuality,
         detectBrowserGeoEnvironment,
         queryGeoPermissionState,

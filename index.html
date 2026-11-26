@@ -33,11 +33,11 @@
     <link rel="stylesheet" href="leaflet/leaflet.css">
 
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="style.css?v=3">
+    <link rel="stylesheet" href="style.css?v=4">
 
-    <!-- Parot Official Brand Favicon -->
-    <link rel="icon" type="image/png" href="parot-logo.png">
-    <link rel="apple-touch-icon" href="parot-logo.png">
+    <!-- Monoline Parot-Gradient Location Pin Favicon -->
+    <link rel="icon" type="image/svg+xml" href="logo.svg">
+    <link rel="apple-touch-icon" href="logo.svg">
 </head>
 <body>
     <!-- Main App Wrapper -->
@@ -50,7 +50,7 @@
 
         <!-- Floating Top-Left Brand Pill (Visible on Map Views) -->
         <a id="map-parot-badge" href="https://parotcorp.com" target="_blank" rel="noopener" class="parot-map-badge hidden" title="Powered by Parot">
-            <img src="parot-logo.png" alt="Parot Logo" width="20" height="20">
+            <img src="logo.svg" alt="P-Near Logo" width="22" height="22">
             <span>P-Near <strong>by Parot</strong></span>
         </a>
 
@@ -70,11 +70,8 @@
             <div class="glass-card main-setup-card">
                 <div class="logo-area animate-fade-in">
                     <div class="parot-brand-lockup">
-                        <div class="logo-icon">
-                            <img src="parot-logo.png" alt="Parot" class="parot-emblem">
-                            <span class="pin-badge" aria-hidden="true">
-                                <i data-lucide="map-pin"></i>
-                            </span>
+                        <div class="logo-icon logo-icon-monoline">
+                            <img src="logo.svg" alt="P-Near Location Logo" class="monoline-pin-logo">
                         </div>
                     </div>
                     <h1>P-Near</h1>
@@ -159,6 +156,7 @@
                     </div>
                     <div class="header-right-controls">
                         <div id="sharing-timer" class="countdown-badge">--:--</div>
+                        <button id="btn-extend-15" type="button" class="btn-extend" title="Add 15 minutes to session" aria-label="Extend sharing by 15 minutes">+15m</button>
                         <button id="btn-toggle-share-panel" type="button" class="btn-mini-icon" title="Minimize or expand panel" aria-label="Toggle sharing panel">
                             <i data-lucide="chevron-down" aria-hidden="true"></i>
                         </button>
@@ -225,10 +223,21 @@
                         </div>
                     </div>
 
+                    <!-- Live Status Presets (E2EE) -->
+                    <div id="status-chips-row" class="status-chips-row" role="group" aria-label="Live status presets">
+                        <button type="button" class="status-chip" data-note="On my way">On my way</button>
+                        <button type="button" class="status-chip" data-note="In traffic">In traffic</button>
+                        <button type="button" class="status-chip" data-note="Arriving soon">Arriving soon</button>
+                        <button type="button" class="status-chip" data-note="Waiting here">Waiting here</button>
+                    </div>
+
                     <!-- Network Status -->
                     <div class="network-badge">
                         <span id="wifi-icon-wrap" class="status-icon green"><i data-lucide="wifi" aria-hidden="true"></i></span>
                         <span id="network-status-text" class="network-status-label">Initializing hybrid P2P + Relay Mesh...</span>
+                        <button id="btn-refresh-gps" type="button" class="btn-badge-action" title="Force refresh GPS fix now" aria-label="Refresh GPS now">
+                            <i data-lucide="refresh-cw" aria-hidden="true"></i>
+                        </button>
                         <button id="btn-center-sharer" type="button" class="btn-badge-action" title="Center map on my location" aria-label="Center map on my location">
                             <i data-lucide="crosshair" aria-hidden="true"></i>
                         </button>
@@ -258,6 +267,7 @@
                                 <span class="pulse-dot green" id="viewer-pulse"></span>
                                 <span id="viewer-status-text">Syncing hybrid channels...</span>
                             </p>
+                            <span id="viewer-note-badge" class="viewer-note-badge hidden"></span>
                         </div>
                     </div>
                     <div class="viewer-timer-block">
@@ -271,9 +281,15 @@
             <div id="viewer-card" class="glass-card floating-card bottom-card">
                 <div class="viewer-card-top">
                     <span id="viewer-accuracy-pill" class="precision-pill">Waiting for GPS...</span>
-                    <button id="btn-toggle-viewer-panel" type="button" class="btn-mini-icon" title="Minimize or expand controls" aria-label="Toggle viewer controls">
-                        <i data-lucide="chevron-down" aria-hidden="true"></i>
-                    </button>
+                    <div class="viewer-top-actions">
+                        <button id="btn-fit-route" type="button" class="btn-fit-route hidden" title="Fit both locations on map" aria-label="Fit both locations on map">
+                            <i data-lucide="maximize-2" aria-hidden="true"></i>
+                            <span>Fit Both</span>
+                        </button>
+                        <button id="btn-toggle-viewer-panel" type="button" class="btn-mini-icon" title="Minimize or expand controls" aria-label="Toggle viewer controls">
+                            <i data-lucide="chevron-down" aria-hidden="true"></i>
+                        </button>
+                    </div>
                 </div>
                 <div id="viewer-body" class="viewer-stats">
                     <div class="stats-row stats-4">
@@ -348,8 +364,8 @@
     <script src="lucide.min.js"></script>
 
     <!-- P-Near Modules (Local Zero-Backend) -->
-    <script src="geo.js?v=3"></script>
-    <script src="sync.js?v=3"></script>
-    <script src="app.js?v=3"></script>
+    <script src="geo.js?v=4"></script>
+    <script src="sync.js?v=4"></script>
+    <script src="app.js?v=4"></script>
 </body>
 </html>
